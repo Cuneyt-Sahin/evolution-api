@@ -1,10 +1,12 @@
 FROM node:24-alpine AS builder
 
+# Gerekli araçları kur
 RUN apk update && \
     apk add --no-cache git ffmpeg wget curl bash openssl
 
 WORKDIR /evolution
 
+# Dosyaları kopyala
 COPY ./package*.json ./
 COPY ./tsconfig.json ./
 COPY ./tsup.config.ts ./
@@ -19,32 +21,34 @@ COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
 
-# --- KESİN ÇÖZÜM: Mevcut şemayı silip, TEMİZ BİR SQLITE ŞEMASI OLUŞTURUYORUZ ---
-RUN rm -f ./prisma/schema.prisma && \
-    rm -f ./prisma/postgresql-schema.prisma && \
-    echo 'generator client {' > ./prisma/schema.prisma && \
-    echo '  provider = "prisma-client-js"' >> ./prisma/schema.prisma && \
-    echo '}' >> ./prisma/schema.prisma && \
-    echo '' >> ./prisma/schema.prisma && \
-    echo 'datasource db {' >> ./prisma/schema.prisma && \
-    echo '  provider = "sqlite"' >> ./prisma/schema.prisma && \
-    echo '  url      = env("DATABASE_URL")' >> ./prisma/schema.prisma && \
-    echo '}' >> ./prisma/schema.prisma && \
-    # Postgres şemasının içeriğini alıyoruz ama @db... ile başlayan her şeyi siliyoruz
-    cat ./prisma/postgresql-schema.prisma 2>/dev/null || true >> ./prisma/temp_schema && \
-    sed 's/@db\.[a-zA-Z0-9]*\(\(.*\)\)\?//g' ./prisma/temp_schema >> ./prisma/schema.prisma && \
-    rm ./prisma/temp_schema
+# --- BÜYÜK TEMİZLİK OPERASYONU ---
+# 1. Postgres şemasını ana şema olarak kopyala
+RUN cp ./prisma/postgresql-schema.prisma ./prisma/schema.prisma
 
-# 2. Alternatif yöntem: Eğer yukarıdaki karışık gelirse, direkt çalışan şemayı indirtiyorum
-# (Eğer üstteki çalışmazsa, Evolution API'nin eski sürümündeki temiz sqlite dosyasını çeker)
-RUN wget -q -O ./prisma/schema.prisma https://raw.githubusercontent.com/EvolutionAPI/evolution-api/v1.8.2/prisma/schema.prisma || true
+# 2. Sağlayıcıyı SQLite yap
+RUN sed -i 's/provider = "postgresql"/provider = "sqlite"/g' ./prisma/schema.prisma
 
-# 3. Ortamı SQLite olarak ayarla ve generate et
+# 3. PostgreSQL'e özel olan TÜM veri tiplerini temizle (Hata verenlerin hepsi burada)
+# VarChar, Text, JsonB, Timestamp, Boolean, Integer, DoublePrecision vb.
+RUN sed -i 's/@db\.VarChar([0-9]*)//g' ./prisma/schema.prisma && \
+    sed -i 's/@db\.VarChar//g' ./prisma/schema.prisma && \
+    sed -i 's/@db\.Text//g' ./prisma/schema.prisma && \
+    sed -i 's/@db\.JsonB//g' ./prisma/schema.prisma && \
+    sed -i 's/@db\.Timestamp(6)//g' ./prisma/schema.prisma && \
+    sed -i 's/@db\.Timestamp//g' ./prisma/schema.prisma && \
+    sed -i 's/@db\.Boolean//g' ./prisma/schema.prisma && \
+    sed -i 's/@db\.Integer//g' ./prisma/schema.prisma && \
+    sed -i 's/@db\.DoublePrecision//g' ./prisma/schema.prisma && \
+    sed -i 's/@db\.Oid//g' ./prisma/schema.prisma && \
+    sed -i 's/@db\.Inet//g' ./prisma/schema.prisma
+
+# 4. Temizlenen şema ile Prisma Client oluştur
 ENV DATABASE_PROVIDER=sqlite
 RUN npx prisma generate
 
 RUN npm run build
 
+# --- FİNAL ---
 FROM node:24-alpine AS final
 
 RUN apk update && \
