@@ -19,10 +19,11 @@ COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
 
-# --- BURASI ÇOK ÖNEMLİ: Script kullanmıyoruz, dosya içini zorla değiştiriyoruz ---
-# 1. Şemadaki 'postgresql' yazısını 'sqlite' yapıyoruz
-RUN sed -i 's/provider = "postgresql"/provider = "sqlite"/g' ./prisma/schema.prisma
-# 2. SQLite şemasını kullanarak Prisma Client'ı oluşturuyoruz
+# --- DÜZELTME BURADA: Dosya değiştirmek yerine kopyalıyoruz ---
+# 1. Mevcut postgres şemasını (varsa) silip, yerine SQLite şemasını kopyalıyoruz
+RUN cp ./prisma/sqlite-schema.prisma ./prisma/schema.prisma
+
+# 2. Artık 'schema.prisma' dosyamız SQLite olduğu için generate sorunsuz çalışır
 RUN npx prisma generate
 
 RUN npm run build
