@@ -3,7 +3,7 @@ FROM node:24-alpine AS builder
 RUN apk update && \
     apk add --no-cache git ffmpeg wget curl bash openssl
 
-LABEL version="2.3.1" description="Api to control whatsapp features through http requests." 
+LABEL version="2.3.6" description="Api to control whatsapp features through http requests." 
 LABEL maintainer="Davidson Gomes" git="https://github.com/DavidsonGomes"
 LABEL contact="contato@evolution-api.com"
 
@@ -22,8 +22,14 @@ COPY ./manager ./manager
 COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 
-# --- DEĞİŞİKLİK 1: Scripti sildik, yerine SQLite şemasını zorla oluşturuyoruz ---
-RUN npx prisma generate --schema=./prisma/sqlite-schema.prisma
+COPY ./Docker ./Docker
+
+RUN chmod +x ./Docker/scripts/* && dos2unix ./Docker/scripts/*
+
+# --- DÜZELTME BURADA: Environment ile SQLite seçiyoruz ---
+ENV DATABASE_PROVIDER=sqlite
+# Scripti çalıştırıyoruz, o "sqlite" yazdığımızı görüp doğru dosyayı hazırlayacak
+RUN ./Docker/scripts/generate_database.sh
 
 RUN npm run build
 
@@ -46,6 +52,7 @@ COPY --from=builder /evolution/prisma ./prisma
 COPY --from=builder /evolution/manager ./manager
 COPY --from=builder /evolution/public ./public
 COPY --from=builder /evolution/.env ./.env
+COPY --from=builder /evolution/Docker ./Docker
 COPY --from=builder /evolution/runWithProvider.js ./runWithProvider.js
 COPY --from=builder /evolution/tsup.config.ts ./tsup.config.ts
 
@@ -53,5 +60,5 @@ ENV DOCKER_ENV=true
 
 EXPOSE 8080
 
-# --- DEĞİŞİKLİK 2: Hata veren scripti kaldırdık, direkt uygulamayı başlatıyoruz ---
+# Uygulamayı başlat
 CMD ["npm", "run", "start:prod"]
