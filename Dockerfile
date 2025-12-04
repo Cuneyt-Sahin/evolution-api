@@ -1,20 +1,17 @@
 FROM node:24-alpine AS builder
 
-# Gerekli araçları kuruyoruz
+# Gerekli araçları yüklüyoruz
 RUN apk update && \
-    apk add --no-cache git ffmpeg wget curl bash openssl dos2unix
+    apk add --no-cache git ffmpeg wget curl bash openssl
 
 WORKDIR /evolution
 
-# Bağımlılık dosyalarını kopyala
 COPY ./package*.json ./
 COPY ./tsconfig.json ./
 COPY ./tsup.config.ts ./
 
-# Bağımlılıkları yükle
 RUN npm ci --silent
 
-# Kaynak kodları kopyala
 COPY ./src ./src
 COPY ./public ./public
 COPY ./prisma ./prisma
@@ -23,21 +20,26 @@ COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
 
-# --- KRİTİK DÜZELTME BURASI ---
-# 1. Scriptlerin çalıştırılabilir olması için izin ver ve formatı düzelt
-RUN chmod +x ./Docker/scripts/* && dos2unix ./Docker/scripts/*
+# --- KRİTİK BÖLÜM: PostgreSQL şemasını SQLite'a çevirme ---
+# 1. Postgres şemasını ana şema olarak kopyala
+RUN cp ./prisma/postgresql-schema.prisma ./prisma/schema.prisma
 
-# 2. Veritabanı türünü SQLite olarak ayarla
+# 2. Provider'ı sqlite yap
+RUN sed -i 's/provider = "postgresql"/provider = "sqlite"/g' ./prisma/schema.prisma
+
+# 3. PostgreSQL'e özel veri tiplerini (VarChar, JsonB, vb.) temizle
+RUN sed -i 's/@db.VarChar([0-9]*)//g' ./prisma/schema.prisma && \
+    sed -i 's/@db.Text//g' ./prisma/schema.prisma && \
+    sed -i 's/@db.JsonB//g' ./prisma/schema.prisma && \
+    sed -i 's/@db.Timestamp(6)//g' ./prisma/schema.prisma && \
+    sed -i 's/@db.Timestamp//g' ./prisma/schema.prisma && \
+    sed -i 's/@db.Boolean//g' ./prisma/schema.prisma && \
+    sed -i 's/@db.Integer//g' ./prisma/schema.prisma
+
+# 4. Artık temiz bir şemamız var, generate işlemi çalışacak
 ENV DATABASE_PROVIDER=sqlite
-
-# 3. Evolution API'nin kendi scriptini çalıştırarak schema.prisma dosyasını OLUŞTUR
-# Bu komut çalışmadan 'schema.prisma' dosyası oluşmaz!
-RUN ./Docker/scripts/generate_database.sh
-
-# 4. Oluşan şemaya göre Prisma Client'ı yarat
 RUN npx prisma generate
 
-# 5. Uygulamayı derle
 RUN npm run build
 
 # --- FİNAL AŞAMASI ---
@@ -48,12 +50,10 @@ RUN apk update && \
 
 ENV TZ=Europe/Istanbul
 ENV DOCKER_ENV=true
-# Çalışma anında da SQLite olduğunu bilsin
 ENV DATABASE_PROVIDER=sqlite
 
 WORKDIR /evolution
 
-# Derlenen dosyaları builder aşamasından kopyala
 COPY --from=builder /evolution/package.json ./package.json
 COPY --from=builder /evolution/package-lock.json ./package-lock.json
 COPY --from=builder /evolution/node_modules ./node_modules
