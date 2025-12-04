@@ -19,18 +19,12 @@ COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
 
-# --- DÜZELTME BURADA ---
-# 1. Mevcut SQLite şemasını bulup ana şema dosyası olarak kopyalıyoruz
-# (Evolution API'de dosya adı 'sqlite-schema.prisma' olabilir, onu kopyalıyoruz)
-RUN cp ./prisma/sqlite-schema.prisma ./prisma/schema.prisma || echo "sqlite-schema.prisma bulunamadi, postgres'i donusturuyorum"
+# --- KESİN ÇÖZÜM: Environment Variable ile Şemayı Belirle ---
+# Evolution API'nin build sistemi, DATABASE_PROVIDER değişkenine bakar.
+# Eğer bu değişken 'sqlite' ise, otomatik olarak 'sqlite-schema.prisma' dosyasını kullanır.
+ENV DATABASE_PROVIDER=sqlite
 
-# 2. Eğer kopyalama başarısız olursa (dosya yoksa), postgres şemasını alıp sqlite'a çeviriyoruz
-RUN if [ ! -f ./prisma/schema.prisma ]; then \
-      cp ./prisma/postgresql-schema.prisma ./prisma/schema.prisma && \
-      sed -i 's/provider = "postgresql"/provider = "sqlite"/g' ./prisma/schema.prisma; \
-    fi
-
-# 3. Artık 'schema.prisma' dosyamız kesin var, generate çalışır
+# Şimdi Prisma'yı çalıştırıyoruz. Environment variable sayesinde doğru dosyayı seçecek.
 RUN npx prisma generate
 
 RUN npm run build
@@ -42,6 +36,8 @@ RUN apk update && \
 
 ENV TZ=Europe/Istanbul
 ENV DOCKER_ENV=true
+# Final aşamasında da SQLite olduğunu belirtiyoruz
+ENV DATABASE_PROVIDER=sqlite
 
 WORKDIR /evolution
 
