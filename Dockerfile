@@ -22,11 +22,8 @@ COPY ./manager ./manager
 COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 
-COPY ./Docker ./Docker
-
-RUN chmod +x ./Docker/scripts/* && dos2unix ./Docker/scripts/*
-
-RUN ./Docker/scripts/generate_database.sh
+# --- DEĞİŞİKLİK 1: Scripti sildik, yerine SQLite şemasını zorla oluşturuyoruz ---
+RUN npx prisma generate --schema=./prisma/sqlite-schema.prisma
 
 RUN npm run build
 
@@ -35,7 +32,7 @@ FROM node:24-alpine AS final
 RUN apk update && \
     apk add tzdata ffmpeg bash openssl
 
-ENV TZ=America/Sao_Paulo
+ENV TZ=Europe/Istanbul
 ENV DOCKER_ENV=true
 
 WORKDIR /evolution
@@ -49,7 +46,6 @@ COPY --from=builder /evolution/prisma ./prisma
 COPY --from=builder /evolution/manager ./manager
 COPY --from=builder /evolution/public ./public
 COPY --from=builder /evolution/.env ./.env
-COPY --from=builder /evolution/Docker ./Docker
 COPY --from=builder /evolution/runWithProvider.js ./runWithProvider.js
 COPY --from=builder /evolution/tsup.config.ts ./tsup.config.ts
 
@@ -57,4 +53,5 @@ ENV DOCKER_ENV=true
 
 EXPOSE 8080
 
-ENTRYPOINT ["/bin/bash", "-c", ". ./Docker/scripts/deploy_database.sh && npm run start:prod" ]
+# --- DEĞİŞİKLİK 2: Hata veren scripti kaldırdık, direkt uygulamayı başlatıyoruz ---
+CMD ["npm", "run", "start:prod"]
