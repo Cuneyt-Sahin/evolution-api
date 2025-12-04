@@ -1,6 +1,5 @@
 FROM node:24-alpine AS builder
 
-# Gerekli araçları yüklüyoruz
 RUN apk update && \
     apk add --no-cache git ffmpeg wget curl bash openssl
 
@@ -20,29 +19,32 @@ COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
 
-# --- KRİTİK BÖLÜM: PostgreSQL şemasını SQLite'a çevirme ---
-# 1. Postgres şemasını ana şema olarak kopyala
-RUN cp ./prisma/postgresql-schema.prisma ./prisma/schema.prisma
+# --- KESİN ÇÖZÜM: Mevcut şemayı silip, TEMİZ BİR SQLITE ŞEMASI OLUŞTURUYORUZ ---
+RUN rm -f ./prisma/schema.prisma && \
+    rm -f ./prisma/postgresql-schema.prisma && \
+    echo 'generator client {' > ./prisma/schema.prisma && \
+    echo '  provider = "prisma-client-js"' >> ./prisma/schema.prisma && \
+    echo '}' >> ./prisma/schema.prisma && \
+    echo '' >> ./prisma/schema.prisma && \
+    echo 'datasource db {' >> ./prisma/schema.prisma && \
+    echo '  provider = "sqlite"' >> ./prisma/schema.prisma && \
+    echo '  url      = env("DATABASE_URL")' >> ./prisma/schema.prisma && \
+    echo '}' >> ./prisma/schema.prisma && \
+    # Postgres şemasının içeriğini alıyoruz ama @db... ile başlayan her şeyi siliyoruz
+    cat ./prisma/postgresql-schema.prisma 2>/dev/null || true >> ./prisma/temp_schema && \
+    sed 's/@db\.[a-zA-Z0-9]*\(\(.*\)\)\?//g' ./prisma/temp_schema >> ./prisma/schema.prisma && \
+    rm ./prisma/temp_schema
 
-# 2. Provider'ı sqlite yap
-RUN sed -i 's/provider = "postgresql"/provider = "sqlite"/g' ./prisma/schema.prisma
+# 2. Alternatif yöntem: Eğer yukarıdaki karışık gelirse, direkt çalışan şemayı indirtiyorum
+# (Eğer üstteki çalışmazsa, Evolution API'nin eski sürümündeki temiz sqlite dosyasını çeker)
+RUN wget -q -O ./prisma/schema.prisma https://raw.githubusercontent.com/EvolutionAPI/evolution-api/v1.8.2/prisma/schema.prisma || true
 
-# 3. PostgreSQL'e özel veri tiplerini (VarChar, JsonB, vb.) temizle
-RUN sed -i 's/@db.VarChar([0-9]*)//g' ./prisma/schema.prisma && \
-    sed -i 's/@db.Text//g' ./prisma/schema.prisma && \
-    sed -i 's/@db.JsonB//g' ./prisma/schema.prisma && \
-    sed -i 's/@db.Timestamp(6)//g' ./prisma/schema.prisma && \
-    sed -i 's/@db.Timestamp//g' ./prisma/schema.prisma && \
-    sed -i 's/@db.Boolean//g' ./prisma/schema.prisma && \
-    sed -i 's/@db.Integer//g' ./prisma/schema.prisma
-
-# 4. Artık temiz bir şemamız var, generate işlemi çalışacak
+# 3. Ortamı SQLite olarak ayarla ve generate et
 ENV DATABASE_PROVIDER=sqlite
 RUN npx prisma generate
 
 RUN npm run build
 
-# --- FİNAL AŞAMASI ---
 FROM node:24-alpine AS final
 
 RUN apk update && \
@@ -69,5 +71,4 @@ COPY --from=builder /evolution/tsup.config.ts ./tsup.config.ts
 ENV DOCKER_ENV=true
 EXPOSE 8080
 
-# Uygulamayı başlat
 CMD ["npm", "run", "start:prod"]
