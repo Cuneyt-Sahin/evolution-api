@@ -22,7 +22,7 @@ COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
 
-# --- BÜYÜK TEMİZLİK OPERASYONU ---
+# --- PRISMA + SQLITE DÜZENİ ---
 
 # 1. Postgres şemasını ana şema olarak kopyala
 RUN cp ./prisma/postgresql-schema.prisma ./prisma/schema.prisma
@@ -49,8 +49,8 @@ ENV DATABASE_PROVIDER=sqlite
 RUN npx prisma generate
 
 # 5. Typecheck'i atlamak için build script'ini patchle
-# Orijinal: "build": "tsc --noEmit && tsup"
-# Yeni   : "build": "tsup"
+#    Orijinal: "build": "tsc --noEmit && tsup"
+#    Yeni    : "build": "tsup"
 RUN node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.scripts.build='tsup';fs.writeFileSync('package.json',JSON.stringify(p,null,2));"
 
 # 6. Build
