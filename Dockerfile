@@ -22,38 +22,20 @@ COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
 COPY ./Docker ./Docker
 
-# --- PRISMA + SQLITE DÜZENİ ---
+# --- PRISMA + POSTGRESQL DÜZENİ ---
 
-# 1. Postgres şemasını ana şema olarak kopyala
+# 1. Postgres şemasını ana şema olarak kopyala (Dönüştürme yapmıyoruz)
 RUN cp ./prisma/postgresql-schema.prisma ./prisma/schema.prisma
 
-# 2. Sağlayıcıyı SQLite yap
-RUN sed -i 's/provider = "postgresql"/provider = "sqlite"/g' ./prisma/schema.prisma
-
-# 3. PostgreSQL'e özel olan TÜM veri tiplerini temizle (SQLite'ta desteklenmiyor)
-RUN sed -i 's/@db\.VarChar([0-9]*)//g' ./prisma/schema.prisma && \
-    sed -i 's/@db\.VarChar//g' ./prisma/schema.prisma && \
-    sed -i 's/@db\.Text//g' ./prisma/schema.prisma && \
-    sed -i 's/@db\.JsonB//g' ./prisma/schema.prisma && \
-    sed -i 's/@db\.Timestamp(6)//g' ./prisma/schema.prisma && \
-    sed -i 's/@db\.Timestamp//g' ./prisma/schema.prisma && \
-    sed -i 's/@db\.Boolean//g' ./prisma/schema.prisma && \
-    sed -i 's/@db\.Integer//g' ./prisma/schema.prisma && \
-    sed -i 's/@db\.DoublePrecision//g' ./prisma/schema.prisma && \
-    sed -i 's/@db\.Oid//g' ./prisma/schema.prisma && \
-    sed -i 's/@db\.Inet//g' ./prisma/schema.prisma && \
-    sed -i 's/@db\.Date//g' ./prisma/schema.prisma
-
-# 4. Temizlenen şema ile Prisma Client oluştur
-ENV DATABASE_PROVIDER=sqlite
+# 2. Prisma Client oluştur (Postgres için)
+ENV DATABASE_PROVIDER=postgresql
 RUN npx prisma generate
 
-# 5. Typecheck'i atlamak için build script'ini patchle
-#    Orijinal: "build": "tsc --noEmit && tsup"
-#    Yeni    : "build": "tsup"
+# 3. Typecheck'i atlamak için build script'ini patchle
+#    (Orijinal mantığı korudum, build hatası almamak için)
 RUN node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.scripts.build='tsup';fs.writeFileSync('package.json',JSON.stringify(p,null,2));"
 
-# 6. Build
+# 4. Build
 RUN npm run build
 
 # --- FİNAL İMAJ ---
@@ -65,7 +47,8 @@ RUN apk update && \
 
 ENV TZ=Europe/Istanbul
 ENV DOCKER_ENV=true
-ENV DATABASE_PROVIDER=sqlite
+# Provider'ı PostgreSQL olarak ayarladık
+ENV DATABASE_PROVIDER=postgresql
 
 WORKDIR /evolution
 
